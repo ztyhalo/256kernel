@@ -995,7 +995,7 @@ static irqreturn_t flexcan_irq(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 #endif
-
+// extern unsigned long hndz_read_current_timer(void);
 static irqreturn_t flexcan_napi_irq(int irq, void *dev_id)
 {
 	struct net_device *dev = dev_id;
@@ -1004,7 +1004,9 @@ static irqreturn_t flexcan_napi_irq(int irq, void *dev_id)
 	struct flexcan_regs __iomem *regs = priv->base;
 	u32 reg_iflag1, reg_esr;
 	irqreturn_t handled = IRQ_NONE;
-
+	// unsigned long time1, time2;
+	u32 rvnum = 0;
+	// time1 = hndz_read_current_timer();
 	reg_iflag1 = flexcan_read(&regs->iflag1);
 	reg_esr = flexcan_read(&regs->esr);
 	/* ACK all bus error and state change IRQ sources */
@@ -1023,7 +1025,7 @@ static irqreturn_t flexcan_napi_irq(int irq, void *dev_id)
 
 	if(reg_iflag1 & FLEXCAN_IFLAG_RX_FIFO_AVAILABLE){
 		handled = IRQ_HANDLED;
-		can_rx_offload_irq_offload_fifo(&priv->offload);
+		rvnum = can_rx_offload_irq_offload_fifo(&priv->offload);
 	}
 
 		/* FIFO overflow */
@@ -1082,6 +1084,9 @@ static irqreturn_t flexcan_napi_irq(int irq, void *dev_id)
 		printk("hndz flexcan FLEXCAN_ESR_ERR_BUS error 0x%x!\n", reg_esr);
 		//error process
 	}
+	// time2 = hndz_read_current_timer();
+	// if(rvnum > 0)
+	// 	printk("hndz can time %lu num %d!\n", time2-time1, rvnum);
 
 	return IRQ_HANDLED;
 }

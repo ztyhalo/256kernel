@@ -221,7 +221,7 @@ static int  rst_gpio;
 
 #define DEVICE_NAME "mcp251x"
 
-static int mcp251x_enable_dma; /* Enable SPI DMA. Default: 0 (Off) */
+static int mcp251x_enable_dma = 1; /* Enable SPI DMA. Default: 0 (Off) */
 module_param(mcp251x_enable_dma, int, S_IRUGO);
 MODULE_PARM_DESC(mcp251x_enable_dma, "Enable SPI DMA. Default: 0 (Off)");
 
@@ -311,6 +311,7 @@ static void mcp251x_clean(struct net_device *net)
  * conversation with the chip and to avoid doing really nasty things
  * (like injecting bogus packets in the network stack).
  */
+extern int hndz_spi_async(struct spi_device *spi, struct spi_message *message);
 static int mcp251x_spi_trans(struct spi_device *spi, int len)
 {
 	struct mcp251x_priv *priv = spi_get_drvdata(spi);
@@ -322,7 +323,11 @@ static int mcp251x_spi_trans(struct spi_device *spi, int len)
 	};
 	struct spi_message m;
 	int ret;
-
+	// if(len == 1)
+	// {
+	// 	printk("hndz spi send len 1!\n");
+	// 	dump_stack();
+	// }
 	spi_message_init(&m);
 
 	if (mcp251x_enable_dma) {
@@ -330,10 +335,11 @@ static int mcp251x_spi_trans(struct spi_device *spi, int len)
 		t.rx_dma = priv->spi_rx_dma;
 		m.is_dma_mapped = 1;
 	}
-
+	// m.spi = spi;
 	spi_message_add_tail(&t, &m);
 
-	ret = spi_sync(spi, &m);
+	ret = hndz_spi_async(spi, &m);
+	//  ret = spi_sync(spi, &m);
 	if (ret)
 		dev_err(&spi->dev, "spi transfer failed: ret = %d\n", ret);
 	return ret;
@@ -621,6 +627,9 @@ static int mcp251x_setup(struct net_device *net, struct mcp251x_priv *priv,
 
 	mcp251x_write_reg(spi, RXBCTRL(0),
 			  RXBCTRL_BUKT | RXBCTRL_RXM0 | RXBCTRL_RXM1);
+	
+	// mcp251x_write_reg(spi, RXBCTRL(0),
+	// 		 RXBCTRL_RXM0 | RXBCTRL_RXM1);
 	mcp251x_write_reg(spi, RXBCTRL(1),
 			  RXBCTRL_RXM0 | RXBCTRL_RXM1);
 	return 0;
@@ -829,6 +838,11 @@ static irqreturn_t mcp251x_can_ist(int irq, void *dev_id)
 			 */
 			if (mcp251x_is_2510(spi))
 				mcp251x_write_bits(spi, CANINTF, CANINTF_RX0IF, 0x00);
+			if (!(intf & CANINTF_RX1IF))
+			{
+				mcp251x_read_2regs(spi, CANINTF, &intf, &eflag);
+				intf &= CANINTF_RX | CANINTF_TX | CANINTF_ERR;
+			}
 		}
 
 		/* receive buffer 1 */
@@ -1098,7 +1112,6 @@ static int mcp251x_can_probe(struct spi_device *spi)
 		if (ret)
 			goto out_free;
 	}
-	//printk("zty mcp251x %d!\n",__LINE__);
 	net->netdev_ops = &mcp251x_netdev_ops;
 	net->flags |= IFF_ECHO;
 
@@ -1126,7 +1139,6 @@ static int mcp251x_can_probe(struct spi_device *spi)
 	ret = spi_setup(spi);
 	if (ret)
 		goto out_clk;
-//	printk("zty mcp251x %d!\n",__LINE__);
 
 	priv->power = devm_regulator_get(&spi->dev, "vdd");
 	priv->transceiver = devm_regulator_get(&spi->dev, "xceiver");
@@ -1135,18 +1147,18 @@ static int mcp251x_can_probe(struct spi_device *spi)
 		ret = -EPROBE_DEFER;
 		goto out_clk;
 	}
-//	printk("zty mcp251x %d!\n",__LINE__);
+
 	ret = mcp251x_power_enable(priv->power, 1);
 	if (ret)
 		goto out_clk;
-//	printk("zty mcp251x %d!\n",__LINE__);
+	printk("zty mcp251x_enable_dma %d!\n",mcp251x_enable_dma);
 	priv->spi = spi;
 	mutex_init(&priv->mcp_lock);
 
 	/* If requested, allocate DMA buffers */
 	if (mcp251x_enable_dma) {
 
-//		printk("zty mcp251x enable dma!\n");
+		printk("zty mcp251x enable dma!\n");
 		spi->dev.coherent_dma_mask = ~0;
 
 		/*
@@ -1164,7 +1176,7 @@ static int mcp251x_can_probe(struct spi_device *spi)
 							(PAGE_SIZE / 2));
 		} else {
 			/* Fall back to non-DMA */
-			//printk("zty mcp251x no dma!\n");
+			printk("zty mcp251x no dma!\n");
 			mcp251x_enable_dma = 0;
 		}
 	}

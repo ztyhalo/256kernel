@@ -660,6 +660,7 @@ static int __spi_map_msg(struct spi_master *master, struct spi_message *msg)
 			continue;
 
 		if (xfer->tx_buf != NULL) {
+			// printk("hndz xfer tx buf map!\n");
 			ret = spi_map_buf(master, tx_dev, &xfer->tx_sg,
 					  (void *)xfer->tx_buf, xfer->len,
 					  DMA_TO_DEVICE);
@@ -668,10 +669,12 @@ static int __spi_map_msg(struct spi_master *master, struct spi_message *msg)
 		}
 
 		if (xfer->rx_buf != NULL) {
+			// printk("hndz xfer rx buf map!\n");
 			ret = spi_map_buf(master, rx_dev, &xfer->rx_sg,
 					  xfer->rx_buf, xfer->len,
 					  DMA_FROM_DEVICE);
 			if (ret != 0) {
+				printk("hndz xfer rx buf map DMA_TO_DEVICE!\n");
 				spi_unmap_buf(master, tx_dev, &xfer->tx_sg,
 					      DMA_TO_DEVICE);
 				return ret;
@@ -739,6 +742,7 @@ static int spi_map_msg(struct spi_master *master, struct spi_message *msg)
 		}
 
 		if (max_tx) {
+			printk("hndz max_tx realloc %d!\n", max_tx);
 			tmp = krealloc(master->dummy_tx, max_tx,
 				       GFP_KERNEL | GFP_DMA);
 			if (!tmp)
@@ -748,6 +752,7 @@ static int spi_map_msg(struct spi_master *master, struct spi_message *msg)
 		}
 
 		if (max_rx) {
+			printk("hndz max_rx realloc %d!\n", max_rx);
 			tmp = krealloc(master->dummy_rx, max_rx,
 				       GFP_KERNEL | GFP_DMA);
 			if (!tmp)
@@ -930,6 +935,7 @@ static void spi_pump_messages(struct kthread_work *work)
 		trace_spi_master_busy(master);
 
 	if (!was_busy && master->prepare_transfer_hardware) {
+		// printk("hndz prepare_transfer_hardware is %pF!\n", master->prepare_transfer_hardware);
 		ret = master->prepare_transfer_hardware(master);
 		if (ret) {
 			dev_err(&master->dev,
@@ -945,6 +951,7 @@ static void spi_pump_messages(struct kthread_work *work)
 
 	if (master->prepare_message) {
 		ret = master->prepare_message(master, master->cur_msg);
+		// printk("hndz prepare_message is %pF!\n", master->prepare_message);
 		if (ret) {
 			dev_err(&master->dev,
 				"failed to prepare message: %d\n", ret);
@@ -1960,7 +1967,7 @@ static int __spi_async(struct spi_device *spi, struct spi_message *message)
 	message->spi = spi;
 
 	trace_spi_message_submit(message);
-
+	// printk("hndz spi device name %s func %pF!\n", dev_name(&spi->dev), master->transfer);
 	return master->transfer(spi, message);
 }
 
@@ -2131,6 +2138,33 @@ int spi_sync(struct spi_device *spi, struct spi_message *message)
 	return __spi_sync(spi, message, 0);
 }
 EXPORT_SYMBOL_GPL(spi_sync);
+
+
+int hndz_spi_async(struct spi_device *spi, struct spi_message *message)
+{
+	struct spi_master *master = spi->master;
+	int ret;
+	message->spi = spi;
+
+	if (master->prepare_message) {
+		ret = master->prepare_message(master,  message);
+		// printk("hndz prepare_message is %pF!\n", master->prepare_message);
+		if (ret) {
+			dev_err(&master->dev,
+				"failed to prepare message: %d\n", ret);
+			return ret;
+		}
+		master->cur_msg_prepared = true;
+	}
+
+	ret = spi_map_msg(master, message);
+	if (ret) {
+		message->status = ret;
+		return ret;
+	}
+	return master->transfer_one_message(master, message);
+}
+EXPORT_SYMBOL_GPL(hndz_spi_async);
 
 /**
  * spi_sync_locked - version of spi_sync with exclusive bus usage

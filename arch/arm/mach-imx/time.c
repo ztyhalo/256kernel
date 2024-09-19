@@ -31,6 +31,7 @@
 #include <linux/of.h>
 #include <linux/of_address.h>
 #include <linux/of_irq.h>
+#include <linux/clk-provider.h>
 
 #include <asm/mach/time.h>
 
@@ -131,6 +132,11 @@ static unsigned long imx_read_current_timer(void)
 	return __raw_readl(sched_clock_reg);
 }
 
+unsigned long hndz_read_current_timer(void)
+{
+	return __raw_readl(sched_clock_reg);
+}
+
 static int __init mxc_clocksource_init(struct clk *timer_clk)
 {
 	unsigned int c = clk_get_rate(timer_clk);
@@ -141,7 +147,7 @@ static int __init mxc_clocksource_init(struct clk *timer_clk)
 	register_current_timer_delay(&imx_delay_timer);
 
 	sched_clock_reg = reg;
-
+	printk("hndz mxc clocksource name %s!\n", __clk_get_name(timer_clk));
 	sched_clock_register(mxc_read_sched_clock, 32, c);
 	return clocksource_mmio_init(reg, "mxc_timer1", c, 200, 32,
 			clocksource_mmio_readl_up);

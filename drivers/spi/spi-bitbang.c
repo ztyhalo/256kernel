@@ -278,6 +278,7 @@ static int spi_bitbang_transfer_one(struct spi_master *master,
 	unsigned		cs_change;
 	int			status;
 	int			do_setup = -1;
+	int         sendnum = 0;
 	struct spi_device	*spi = m->spi;
 
 	bitbang = spi_master_get_devdata(master);
@@ -312,11 +313,14 @@ static int spi_bitbang_transfer_one(struct spi_master *master,
 		 * (and also deselects any other chip that might be
 		 * selected ...)
 		 */
+		sendnum++;
 		if (cs_change) {
 			bitbang->chipselect(spi, BITBANG_CS_ACTIVE);
 			ndelay(nsecs);
 		}
 		cs_change = t->cs_change;
+		if(t->cs_change != 0)
+			printk("hndz spi cs_change %d!\n", t->cs_change);
 		if (!t->tx_buf && !t->rx_buf && t->len) {
 			status = -EINVAL;
 			break;
@@ -353,6 +357,7 @@ static int spi_bitbang_transfer_one(struct spi_master *master,
 			/* sometimes a short mid-message deselect of the chip
 			 * may be needed to terminate a mode or command
 			 */
+			printk("hndz chip select 33BITBANG_CS_INACTIVE!\n");
 			ndelay(nsecs);
 			bitbang->chipselect(spi, BITBANG_CS_INACTIVE);
 			ndelay(nsecs);
@@ -365,13 +370,18 @@ static int spi_bitbang_transfer_one(struct spi_master *master,
 	 * cs_change has hinted that the next message will probably
 	 * be for this chip too.
 	 */
+	if(sendnum > 1)
+	{
+		printk("hndz spi send one is num %d!\n", sendnum);
+	}
 	if (!(status == 0 && cs_change)) {
+		// printk("hndz chip select status %d!\n",status);
 		ndelay(nsecs);
 		bitbang->chipselect(spi, BITBANG_CS_INACTIVE);
 		ndelay(nsecs);
 	}
 
-	spi_finalize_current_message(master);
+	// spi_finalize_current_message(master);
 
 	return status;
 }
