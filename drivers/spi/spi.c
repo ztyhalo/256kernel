@@ -2166,6 +2166,40 @@ int hndz_spi_async(struct spi_device *spi, struct spi_message *message)
 }
 EXPORT_SYMBOL_GPL(hndz_spi_async);
 
+extern int spi_imx_irq_dma_transfer(struct spi_device * spi,
+				struct spi_transfer *transfer, dma_async_tx_callback rxcallback, dma_async_tx_callback txcallback);
+
+int hndz_spi_dma_irq_async(struct spi_device *spi, struct spi_message *message, 
+							dma_async_tx_callback rxcallback, dma_async_tx_callback txcallback)
+{
+	struct spi_master *master = spi->master;
+	int ret;
+	message->spi = spi;
+	struct spi_transfer	*t = NULL;
+
+	if (master->prepare_message) {
+		ret = master->prepare_message(master,  message);
+		// printk("hndz prepare_message is %pF!\n", master->prepare_message);
+		if (ret) {
+			dev_err(&master->dev,
+				"failed to prepare message: %d\n", ret);
+			return ret;
+		}
+		master->cur_msg_prepared = true;
+	}
+
+	ret = spi_map_msg(master, message);
+	if (ret) {
+		message->status = ret;
+		return ret;
+	}
+	list_for_each_entry(t, &message->transfers, transfer_list) {
+		 ret = spi_imx_irq_dma_transfer(spi, t,  rxcallback,  txcallback);
+	}
+	return ret;
+}
+EXPORT_SYMBOL_GPL(hndz_spi_dma_irq_async);
+
 /**
  * spi_sync_locked - version of spi_sync with exclusive bus usage
  * @spi: device with which data will be exchanged

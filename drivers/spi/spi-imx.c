@@ -1033,7 +1033,7 @@ int spi_imx_dma_async_transfer(struct spi_imx_data *spi_imx,
 	struct spi_master *master = spi_imx->bitbang.master;
 	struct sg_table *tx = &transfer->tx_sg, *rx = &transfer->rx_sg;
 
-	pr_info_once("hndz first spi tx len %d rx len %d!\n", tx->nents, rx->nents);
+	// printk("hndz first spi tx len %d rx len %d!\n", tx->nents, rx->nents);
 	if (tx) {
 		desc_tx = dmaengine_prep_slave_sg(master->dma_tx,
 					tx->sgl, tx->nents, DMA_TO_DEVICE,
@@ -1124,6 +1124,140 @@ no_dma:
 		     dev_name(&master->dev));
 	return -EAGAIN;
 
+}
+
+
+int spi_imx_irq_dma_transfer(struct spi_device * spi,
+				struct spi_transfer *transfer, dma_async_tx_callback rxcallback, dma_async_tx_callback txcallback)
+{
+	struct spi_imx_data *spi_imx = spi_master_get_devdata(spi->master);
+	struct dma_async_tx_descriptor *desc_tx = NULL, *desc_rx = NULL;
+	int ret = 0;
+	// int left = 0;
+	struct spi_master *master = spi_imx->bitbang.master;
+	struct sg_table *tx = &transfer->tx_sg, *rx = &transfer->rx_sg;
+
+	spi_imx_setupxfer(spi, transfer);
+	spi_imx_chipselect(spi, 1);
+	ndelay(100);
+
+	// pr_info_once("hndz irq first spi tx len %d rx len %d!\n", tx->nents, rx->nents);
+	if (tx) {
+		desc_tx = dmaengine_prep_slave_sg(master->dma_tx,
+					tx->sgl, tx->nents, DMA_TO_DEVICE,
+					DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
+		if (!desc_tx)
+			goto no_dma;
+		if(txcallback != NULL)
+		{
+			desc_tx->callback = txcallback;
+			desc_tx->callback_param = (void *)spi;
+
+		}
+		else
+		{
+			desc_tx->callback = spi_imx_dma_tx_callback;
+			desc_tx->callback_param = (void *)spi_imx;
+		}
+		dmaengine_submit(desc_tx);
+	}
+	if (rx) {
+		struct scatterlist *sgl_last = &rx->sgl[rx->nents - 1];
+		unsigned int	orig_length = sgl_last->length;
+		int	wml_mask = ~(spi_imx->rx_wml - 1);
+		/*
+		 * Adjust the transfer lenth of the last scattlist if there are
+		 * some tail data, use PIO read to get the tail data since DMA
+		 * sometimes miss the last tail interrupt.
+		 */
+		// left = transfer->len % spi_imx->rx_wml;
+		// if (left)
+		// 	sgl_last->length = orig_length & wml_mask;
+
+		desc_rx = dmaengine_prep_slave_sg(master->dma_rx,
+					rx->sgl, rx->nents, DMA_FROM_DEVICE,
+					DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
+		if (!desc_rx)
+			goto no_dma;
+
+		if(rxcallback != NULL)
+		{
+			desc_rx->callback = rxcallback;
+			desc_rx->callback_param = (void *)spi;
+
+		}
+		else
+		{
+			desc_rx->callback = spi_imx_dma_rx_callback;
+			desc_rx->callback_param = (void *)spi_imx;
+		}
+
+
+		dmaengine_submit(desc_rx);
+	}
+
+	reinit_completion(&spi_imx->dma_rx_completion);
+	reinit_completion(&spi_imx->dma_tx_completion);
+
+	/* Trigger the cspi module. */
+	spi_imx->dma_finished = 0;
+
+	spi_imx->devtype_data->trigger(spi_imx);
+
+	dma_async_issue_pending(master->dma_tx);
+	dma_async_issue_pending(master->dma_rx);
+	
+
+	return ret;
+
+no_dma:
+	pr_warn_once("%s %s: DMA not available, falling back to PIO\n",
+		     dev_driver_string(&master->dev),
+		     dev_name(&master->dev));
+	return -EAGAIN;
+
+}
+
+int spi_imx_dma_wait(struct spi_device * spi, struct spi_transfer *transfer)
+{
+	struct spi_imx_data *spi_imx = spi_master_get_devdata(spi->master);
+	int ret;
+	struct spi_master *master = spi_imx->bitbang.master;
+
+
+	ret = wait_for_completion_timeout(&spi_imx->dma_tx_completion,
+					  IMX_DMA_TIMEOUT(transfer->len));
+	if (!ret) {
+		pr_warn("%s %s: I/O Error in DMA TX:%x\n",
+			dev_driver_string(&master->dev),
+			dev_name(&master->dev), transfer->len);
+		dmaengine_terminate_all(master->dma_tx);
+	} else {
+		ret = wait_for_completion_timeout(&spi_imx->dma_rx_completion,
+				IMX_DMA_TIMEOUT(transfer->len));
+		if (!ret) {
+			pr_warn("%s %s: I/O Error in DMA RX:%x\n",
+				dev_driver_string(&master->dev),
+				dev_name(&master->dev), transfer->len);
+			spi_imx->devtype_data->reset(spi_imx);
+			dmaengine_terminate_all(master->dma_rx);
+		}
+		
+	}
+
+	spi_imx->dma_finished = 1;
+	spi_imx->devtype_data->trigger(spi_imx);
+
+	if (!ret)
+		ret = -ETIMEDOUT;
+	else if (ret > 0)
+		ret = transfer->len;
+
+	ndelay(100);
+	spi_imx_chipselect(spi, 0);
+	ndelay(100);
+
+	return ret;
 }
 
 static int spi_imx_pio_transfer(struct spi_device *spi,
